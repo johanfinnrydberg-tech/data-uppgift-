@@ -180,5 +180,96 @@ def clean_leveransstatus_bool(df):
 df = clean_leveransstatus_bool(df)
 print(df["leveransstatus"].head(20))
 
+# byter dtype till daytimme för pren_startdatum
+def clean_pren_startdatum(df):
+    df_clean = df.copy()
+    
+    # 1. Konvertera till datetime. 
+    # errors='coerce' gör automatiskt alla tomma fält och konstig text till NaT.
+    df_clean["pren_startdatum"] = pd.to_datetime(df_clean["pren_startdatum"], errors='coerce')
+    
+    return df_clean
 
+# Anropa funktionen
+df = clean_pren_startdatum(df)
+print(df["pren_startdatum"].head(20))
+
+# byter dtype i paus_från till till datetime
+def clean_paus_fran_till(df):
+    df_clean = df.copy()
+    
+    # 1. Konvertera till datetime med errors='coerce'
+    df_clean["paus_från"] = pd.to_datetime(df_clean["paus_från"], errors='coerce')
+    df_clean["paus_till"] = pd.to_datetime(df_clean["paus_till"], errors='coerce')
+    
+    return df_clean
+df = clean_paus_fran_till(df)
+print(df["paus_från"].head(20))
+print(df["paus_till"].head(20))
+
+# byter dtype i avslutad_datum till datetime
+def clean_pren_avslutsdatum(df):
+    df_clean = df.copy()
+    
+    # 1. Konvertera till datetime med errors='coerce'
+    df_clean["pren_avslutsdatum"] = pd.to_datetime(df_clean["pren_avslutsdatum"], errors='coerce')
+    
+    return df_clean
+df = clean_pren_avslutsdatum(df)
+print(df["pren_avslutsdatum"].head(20))
+
+# mapping för ordbetydelse i kostpreferens, och gjort nan till okänt
+def clean_kostpreferens(df):
+    df_clean = df.copy()
+    
+    # 1. Standardisera texten till små bokstäver först
+    s = df_clean["kostpreferens"].fillna("okänt").astype(str).str.lower().str.strip()
+    
+    # 2. Mapping (Notera att alla 'nycklar' nu är små bokstäver eftersom s är .lower())
+    mapping = {
+        'laktosfri': 'laktosfri',
+        'glutenfri': 'glutenfri',
+        'nötfri': 'nötfri',
+        'fläskfri': 'fläskfri',
+        'gf': 'glutenfri',
+        'ingen preferens': 'ingen preferens',
+        'inga': 'ingen preferens',
+        'unknown': 'ingen preferens',
+        'standard': 'ingen preferens',
+        'nut free': 'nötfri',
+        'ingen fläsk': 'fläskfri',
+        'normal': 'ingen preferens',
+        'lactose free': 'laktosfri',
+        'lf': 'laktosfri',
+        'nf': 'nötfri',
+        'gluten free': 'glutenfri',
+        'nötter': 'nötfri',
+        'pork free': 'fläskfri'
+    } # Kommatecken tillagda mellan varje rad ovan!
+    
+    # 3. VIKTIGT: Denna rad måste vara indragen (ett tab-steg) för att tillhöra funktionen
+    df_clean["kostpreferens"] = s.replace(mapping)
+    
+    return df_clean
+
+# Anropa och se resultatet
+df = clean_kostpreferens(df)
+print(df["kostpreferens"].unique())
+
+
+# fyller tomma värden i omdöme_text med "ingen kommentar"
+def clean_omdome_text(df):
+    df_clean = df.copy()
+    
+    # Fyll alla tomma värden (NaN) med strängen "ingen kommentar"
+    # Vi använder astype(str) för att säkerställa att kolumnen behandlas som text
+    df_clean["omdöme_text"] = df_clean["omdöme_text"].fillna("ingen kommentar").astype(str)
+    
+    return df_clean
+
+# ANROP
+df = clean_omdome_text(df)
+
+# Kontrollera resultatet (visar de första raderna där det tidigare var tomt)
+print(df[["omdöme_text"]].head(10))
 
