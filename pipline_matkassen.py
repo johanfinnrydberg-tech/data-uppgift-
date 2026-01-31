@@ -540,41 +540,45 @@ print("\n--- VERIFIERING: DATA LÄST FRÅN SQLITE ---")
 print(df_kontroll[['leverans_id', 'stad_namn', 'feat_sentiment_index']])
 conn.close()
 
-# test valideringsdataset
-
 print("\n" + "="*50)
-print("KÖR PIPELINE PÅ VALIDERINGSDATA")
+print("KÖR HELA PIPELINEN PÅ TRÄNINGSDATA")
 print("="*50)
 
-# 1. Extract: Läs in den nya filen
-df_val_raw = pd.read_csv("matkassen_validation.csv")
+# Vi använder .copy() för att inte ändra original-df och arbetar med df_final
+df_final = df.copy() 
 
-# 2. Transform: Kör alla dina funktioner (använd samma ordning som förut)
-# Här använder vi din befintliga logik på den nya datan
-df_val = clean_kassatyp_column(df_val_raw)
-df_val = map_kassatyp(df_val)
-df_val = antal_portioner_nummer(df_val)
-df_val = clean_leveransdatum(df_val)
-df_val = clean_postnummer(df_val)
-df_val = clean_veckopris(df_val)
-df_val = clean_omdome_text(df_val)
-df_val = add_kunalder_dagar(df_val)
-df_val = add_region_feature(df_val)
-df_val = add_stadnamn_feature(df_val)
+# Här anropar du alla dina funktioner i din fulla pipeline-kedja:
+df_final = clean_kassatyp_column(df_final)
+df_final = map_kassatyp(df_final)
+df_final = antal_portioner_nummer(df_final)
+df_final = clean_leveransvecka(df_final)
+df_final = clean_leveransdatum(df_final)
+df_final = clean_postnummer(df_final)
+df_final = clean_veckopris(df_final)
+df_final = clean_leveransstatus_bool(df_final)
+df_final = clean_pren_startdatum(df_final)
+df_final = clean_paus_fran_till(df_final)
+df_final = clean_pren_avslutsdatum(df_final)
+df_final = clean_kostpreferens(df_final)
+df_final = clean_omdome_text(df_final)
+df_final = clean_omdömesdatum(df_final)
+df_final = clean_omdömesbetyg(df_final)
+df_final = add_kunalder_dagar(df_final)
+df_final = feat_paus_langd(df_final)
+df_final = feat_churn_status_avslutat(df_final)
+df_final = feat_pris_per_portion(df_final)
+df_final = add_region_feature(df_final)
+df_final = add_stadnamn_feature(df_final)
+df_final = add_kblab_sentiment(df_final)  # OBS: DENNA RAD TAR LÅNG TID PÅ CPU
+df_final = add_sentiment_features(df_final)
 
-# Vi kör BERT-analysen på ett urval av valideringsdatan för att spara tid
-df_val_test = add_kblab_sentiment(df_val.head(15))
-df_val_test = add_sentiment_features(df_val_test)
+# Spara den färdiga träningsdatan till databasen
+load_to_sqlite(df_final, table_name="processed_training_data")
 
-# 3. Load: Spara till en separat tabell i databasen
-load_to_sqlite(df_val_test, table_name="validation_results")
-
-# 4. Verifiera resultatet
-conn = sqlite3.connect("matkassen_data.db")
-df_val_check = pd.read_sql("SELECT leverans_id, stad_namn, feat_sentiment_index FROM validation_results", conn)
-print("\n--- RESULTAT FRÅN VALIDERINGSDATA ---")
-print(df_val_check.head(10))
-conn.close()
+# --- KLART FÖR ANALYS (DEL 2) ---
+print("\n" + "="*50)
+print("ETL-PIPELINE SLUTFÖRD. REDO FÖR ANALYS I JUPYTER")
+print("="*50)
 
 
 
