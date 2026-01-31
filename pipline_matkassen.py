@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 import sqlite3 
+import torch
+from transformers import pipeline
+
+
 
 df = pd.read_csv("matkassen_data.csv")
 
@@ -403,9 +407,174 @@ df = add_stadnamn_feature(df)  # 3. Mappa (t.ex. "11" -> "Storstockholm")
 # Nu kan du se resultatet av kedjereaktionen
 print(df[['postnummer', 'region', 'stad_namn']].head(20))
 
+# Sentimentanalys av omdöme_text
 
 
+def add_kblab_sentiment(df):
+    df_feat = df.copy()
+    
+    # 1. Kolla hårdvaran (din demo-logik)
+    device = 0 if torch.cuda.is_available() else -1
+    
+    # 2. Ladda modellen med rätt device
+    print(f"Laddar KBLab-modellen på {'GPU' if device == 0 else 'CPU'}...")
+    classifier = pipeline(
+        "sentiment-analysis",
+        model="KBLab/robust-swedish-sentiment-multiclass",
+        device=device
+    )
 
+    def get_sentiment(text):
+        # Snabb-check: hoppa över tomma/korta texter
+        if pd.isna(text) or text == "ingen kommentar" or len(str(text)) < 3:
+            return "NEUTRAL", 0.5
+        
+        try:
+            result = classifier(str(text))
+            # Modellen returnerar en lista, t.ex. [{'label': 'POSITIVE', 'score': 0.99}]
+            return result[0]['label'], result[0]['score']
+        except:
+            return "NEUTRAL", 0.5
+
+    # 3. Kör analysen
+    print("Analyserar sentiment på omdömen...")
+    # Vi sparar resultaten i en temporär kolumn
+    sentiment_results = df_feat['omdöme_text'].apply(get_sentiment)
+    
+    # 4. Dela upp resultaten i Label och Score
+    df_feat['sentiment_label'] = sentiment_results.apply(lambda x: x[0])
+    df_feat['sentiment_score'] = sentiment_results.apply(lambda x: x[1])
+    
+    # 5. Mapping till siffror (för att kunna räkna medelvärde)
+    mapping = {'POSITIVE': 1, 'NEUTRAL': 0, 'NEGATIVE': -1}
+    df_feat['feat_sentiment_index'] = df_feat['sentiment_label'].map(mapping)
+    
+    return df_feat
+df_test = add_kblab_sentiment(df.head(5))
+
+# Visa resultatet
+print(df_test[['omdöme_text', 'sentiment_label', 'feat_sentiment_index']])
+
+#
+def add_sentiment_features(df):
+    df_feat = df.copy()
+    
+    # Förutsättning: Du har kört din add_kblab_sentiment(df) innan denna
+    # så att kolumnerna 'sentiment_label' och 'feat_sentiment_index' finns.
+
+    # --- 1. Sentiment-Betyg Gap (Viktigaste!) ---
+    # Hittar kunder där texten och betyget inte stämmer överens.
+    # Ex: Skriver "Jättegott" (1) men ger betyg 1.
+    df_feat['feat_sentiment_mismatch'] = 0
+    
+    # Logik: Negativ text (-1) men betyg 4-5 ELLER Positiv text (1) men betyg 1-2
+    mismatch_mask = ((df_feat['feat_sentiment_index'] == -1) & (df_feat['omdömesbetyg'] >= 4)) | \
+                    ((df_feat['feat_sentiment_index'] == 1) & (df_feat['omdömesbetyg'] <= 2))
+    
+    df_feat.loc[mismatch_mask, 'feat_sentiment_mismatch'] = 1
+
+    # --- 2. Extremt Sentiment (Styrka) ---
+    # Hittar kunder som är väldigt tydliga i sin feedback (Score > 0.95)
+    df_feat['feat_extreme_sentiment'] = 0
+    df_feat.loc[df_feat['sentiment_score'] > 0.95, 'feat_extreme_sentiment'] = 1
+
+    # --- 3. Negativ Trend-Varning ---
+    # Skapar en ren flagga för negativa omdömen för enkel aggregering
+    df_feat['feat_is_negative'] = (df_feat['feat_sentiment_index'] == -1).astype(int)
+
+    return df_feat
+
+df_small = df.head(15).copy()
+
+# 2. Kör AI-analysen
+df_small = add_kblab_sentiment(df_small)
+
+# 3. Kör Feature Engineering
+df_small = add_sentiment_features(df_small)
+
+# 4. Printa resultatet
+print(df_small[['omdöme_text', 'sentiment_label', 'feat_sentiment_mismatch']].head(15))
+
+print(df.columns)
+print(df.head(20))
+
+print(df.columns)
+
+# load till sql
+
+def load_to_sqlite(df, db_name="matkassen_data.db", table_name="processed_data"):
+    # 1. Skapa anslutning (filen skapas i din mapp)
+    conn = sqlite3.connect(db_name)
+    
+    # 2. Spara DataFrame till SQL
+    # if_exists='replace' gör att tabellen skrivs över varje gång du testar
+    df.to_sql(table_name, conn, if_exists='replace', index=False)
+    
+    # 3. VERIFIERING: Läs tillbaka antal rader (viktigt för uppgiften!)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+    count = cursor.fetchone()[0]
+    
+    print(f"--- LOAD KLART ---")
+    print(f"Data sparad i filen: {db_name}")
+    print(f"Verifiering: {count} rader har laddats upp korrekt.")
+    
+    conn.close()
+
+# ANROP
+load_to_sqlite(df)
+
+# test sql
+
+df_small = df.head(15).copy()
+df_small = add_kblab_sentiment(df_small)
+df_small = add_sentiment_features(df_small)
+
+# 2. KÖR LOAD (Spara df_small istället för df)
+# Här skickar vi in df_small som nu innehåller 'stad_namn' och 'feat_sentiment_index'
+load_to_sqlite(df_small)
+
+conn = sqlite3.connect("matkassen_data.db")
+df_kontroll = pd.read_sql("SELECT * FROM processed_data LIMIT 5", conn)
+print("\n--- VERIFIERING: DATA LÄST FRÅN SQLITE ---")
+print(df_kontroll[['leverans_id', 'stad_namn', 'feat_sentiment_index']])
+conn.close()
+
+# test valideringsdataset
+
+print("\n" + "="*50)
+print("KÖR PIPELINE PÅ VALIDERINGSDATA")
+print("="*50)
+
+# 1. Extract: Läs in den nya filen
+df_val_raw = pd.read_csv("matkassen_validation.csv")
+
+# 2. Transform: Kör alla dina funktioner (använd samma ordning som förut)
+# Här använder vi din befintliga logik på den nya datan
+df_val = clean_kassatyp_column(df_val_raw)
+df_val = map_kassatyp(df_val)
+df_val = antal_portioner_nummer(df_val)
+df_val = clean_leveransdatum(df_val)
+df_val = clean_postnummer(df_val)
+df_val = clean_veckopris(df_val)
+df_val = clean_omdome_text(df_val)
+df_val = add_kunalder_dagar(df_val)
+df_val = add_region_feature(df_val)
+df_val = add_stadnamn_feature(df_val)
+
+# Vi kör BERT-analysen på ett urval av valideringsdatan för att spara tid
+df_val_test = add_kblab_sentiment(df_val.head(15))
+df_val_test = add_sentiment_features(df_val_test)
+
+# 3. Load: Spara till en separat tabell i databasen
+load_to_sqlite(df_val_test, table_name="validation_results")
+
+# 4. Verifiera resultatet
+conn = sqlite3.connect("matkassen_data.db")
+df_val_check = pd.read_sql("SELECT leverans_id, stad_namn, feat_sentiment_index FROM validation_results", conn)
+print("\n--- RESULTAT FRÅN VALIDERINGSDATA ---")
+print(df_val_check.head(10))
+conn.close()
 
 
 
