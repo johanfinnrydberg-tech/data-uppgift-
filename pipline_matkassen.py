@@ -297,6 +297,7 @@ def clean_omdömesbetyg(df):
     return df_clean
 
 # featuring engineering: 
+
 # 1. Beräkning av kundlivslängd (Kundålder)
 def add_kunalder_dagar(df):
     df_feat = df.copy()
@@ -337,6 +338,8 @@ def feat_paus_langd(df):
 
 df = feat_paus_langd(df)
 print(df["feat_paus_antal_dagar"].head(20))
+
+
 # 3. Identifiering av avslutade prenumerationer(dummy-variabel)
 def feat_churn_status_avslutat(df):
     df_feat = df.copy()
@@ -406,7 +409,7 @@ df = add_stadnamn_feature(df)  # 3. Mappa (t.ex. "11" -> "Storstockholm")
 
 print(df[['postnummer', 'region', 'stad_namn']].head(20))
 
-# 6. Sentimentanalys av omdöme_text
+# 6. #Sentimentanalys av omdöme_text
 
 
 def add_kblab_sentiment(df):
