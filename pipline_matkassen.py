@@ -7,6 +7,7 @@ from transformers import pipeline
 
 
 df = pd.read_csv("matkassen_data.csv")
+df_validation = pd.read_csv("matkassen_validation.csv")
 
 # 1. byta namna på kolumen kasstyp: kasstyp till kassatyp
 def clean_kassatyp_column(df):
@@ -503,13 +504,13 @@ print(df.columns)
 
 # load till sql
 
-def load_to_sqlite(df, db_name="matkassen_data.db", table_name="processed_data"):
+def load_to_sqlite(df, db_name="matkassen_data.db", table_name="processed_data", method='append'):
     # 1. Skapa anslutning (filen skapas i din mapp)
     conn = sqlite3.connect(db_name)
     
-    #  Spara DataFrame till SQL
+    #  Spara DataFrame till S
     # if_exists='replace' gör att tabellen skrivs över varje gång jag testar
-    df.to_sql(table_name, conn, if_exists='replace', index=False)
+    df.to_sql(table_name, conn, if_exists=method, index=False)
     
     #  Läsr tillbaka antal rader 
     cursor = conn.cursor()
@@ -522,8 +523,6 @@ def load_to_sqlite(df, db_name="matkassen_data.db", table_name="processed_data")
     
     conn.close()
 
-
-load_to_sqlite(df)
 
 # test sql
 
@@ -546,37 +545,45 @@ print("KÖR HELA PIPELINEN PÅ TRÄNINGSDATA")
 print("="*50)
 
 # Vi använder .copy() för att inte ändra original-df och arbetar med df_final
-df_final = df.copy() 
+
 
 #  anropar alla dina funktioner i den fulla pipeline-kedjan:
-df_final = clean_kassatyp_column(df_final)
-df_final = map_kassatyp(df_final)
-df_final = antal_portioner_nummer(df_final)
-df_final = clean_leveransvecka(df_final)
-df_final = clean_leveransdatum(df_final)
-df_final = clean_postnummer(df_final)
-df_final = clean_veckopris(df_final)
-df_final = clean_leveransstatus_bool(df_final)
-df_final = clean_pren_startdatum(df_final)
-df_final = clean_paus_fran_till(df_final)
-df_final = clean_pren_avslutsdatum(df_final)
-df_final = clean_kostpreferens(df_final)
-df_final = clean_omdome_text(df_final)
-df_final = clean_omdömesdatum(df_final)
-df_final = clean_omdömesbetyg(df_final)
-df_final = add_kunalder_dagar(df_final)
-df_final = feat_paus_langd(df_final)
-df_final = feat_churn_status_avslutat(df_final)
-df_final = feat_pris_per_portion(df_final)
-df_final = add_region_feature(df_final)
-df_final = add_stadnamn_feature(df_final)
-df_final = add_kblab_sentiment(df_final)  
-df_final = add_sentiment_features(df_final)
 
+def transform_data(df):
+    df_clean = df.copy()
+
+    df_clean = clean_kassatyp_column(df_clean)
+    df_clean = map_kassatyp(df_clean)
+    df_clean = antal_portioner_nummer(df_clean)
+    df_clean = clean_leveransvecka(df_clean)
+    df_clean = clean_leveransdatum(df_clean)
+    df_clean = clean_postnummer(df_clean)
+    df_clean = clean_veckopris(df_clean)
+    df_clean = clean_leveransstatus_bool(df_clean)
+    df_clean = clean_pren_startdatum(df_clean)
+    df_clean = clean_paus_fran_till(df_clean)
+    df_clean = clean_pren_avslutsdatum(df_clean)
+    df_clean = clean_kostpreferens(df_clean)
+    df_clean = clean_omdome_text(df_clean)
+    df_clean = clean_omdömesdatum(df_clean)
+    df_clean = clean_omdömesbetyg(df_clean)
+    df_clean = add_kunalder_dagar(df_clean)
+    df_clean = feat_paus_langd(df_clean)
+    df_clean = feat_churn_status_avslutat(df_clean)
+    df_clean = feat_pris_per_portion(df_clean)
+    df_clean = add_region_feature(df_clean)
+    df_clean = add_stadnamn_feature(df_clean)
+    df_clean = add_kblab_sentiment(df_clean)  
+    df_clean = add_sentiment_features(df_clean)
+
+
+    return df_clean
+
+df_clean = transform_data(df)
+df_clean_validation = transform_data(df_validation)
 # Spara den färdiga träningsdatan till databasen
-load_to_sqlite(df_final, table_name="processed_training_data")
-
-
+load_to_sqlite(df_clean, table_name="processed_training_data", method='replace')
+load_to_sqlite(df_clean_validation, table_name="processed_training_data", method='append')
 print("\n" + "="*50)
 print("ETL-PIPELINE SLUTFÖRD. REDO FÖR ANALYS I JUPYTER")
 print("="*50)
