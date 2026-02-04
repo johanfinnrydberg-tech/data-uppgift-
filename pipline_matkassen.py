@@ -3,32 +3,35 @@ import numpy as np
 import sqlite3 
 import torch
 from transformers import pipeline
+device = 0 if torch.cuda.is_available() else -1
+print(f"Förbereder KBLab-modellen på {'GPU' if device == 0 else 'CPU'}...")
 
-
+classifier = pipeline(
+    "sentiment-analysis",
+    model="KBLab/robust-swedish-sentiment-multiclass",
+    device=device
+)
 
 df = pd.read_csv("matkassen_data.csv")
 df_validation = pd.read_csv("matkassen_validation.csv")
 
+# Datatvätt: 
+
 # 1. byta namna på kolumen kasstyp: kasstyp till kassatyp
 def clean_kassatyp_column(df):
-    df_cleaned = df.copy()
-    df_cleaned = df_cleaned.rename(columns={'kasstyp': 'kassatyp'})
-    return df_cleaned
-df = clean_kassatyp_column(df)
-
-print(df["kassatyp"].unique())
+    
+    df = df.rename(columns={'kasstyp': 'kassatyp'})
+    return df
 
 # 2. tar bort stor bokstav 
 def clean_kassatyp(df):
-    df_cleaned = df.copy()
-    df_cleaned['kassatyp'] = df_cleaned['kassatyp'].str.lower()
-    return df_cleaned
-df = clean_kassatyp(df)
-print(df["kassatyp"].unique())
+    
+    df['kassatyp'] = df['kassatyp'].str.lower()
+    return df
 
 # 3. mapping för ordbetydelse i kassatyp, har gjort fritolkning på visa ord
 def map_kassatyp(df):
-    df_cleaned = df.copy()
+    
     mapping = {
         'vegetarian': 'vegetariskkasse',
         'veggie': 'vegetariskkasse',
@@ -47,19 +50,16 @@ def map_kassatyp(df):
         'quick': 'expresskasse'
     }
     
-    df_cleaned['kassatyp'] = df_cleaned['kassatyp'].replace(mapping)
-    return df_cleaned
-
-df = map_kassatyp(df)
-print(df["kassatyp"].unique())
+    df['kassatyp'] = df['kassatyp'].replace(mapping)
+    return df
 
 # 4. tar bort citattecken och gör dem till heltal i antal_portioner
 def antal_portioner_nummer(df):
-    df_cleaned = df.copy()
+    
     ord_till_num = {'två': '2', 'fyra': '4', 'sex': '6'}
     
     # Standardisera texten
-    s = df_cleaned['antal_portioner'].astype(str).str.lower()
+    s = df['antal_portioner'].astype(str).str.lower()
     
     # Byt ut ord mot siffer-strängar
     for word, num in ord_till_num.items():
@@ -67,17 +67,13 @@ def antal_portioner_nummer(df):
     
     # Extrahera siffror men behåller NaN (ingen fillna eller astype int)
     # Vi använder float för att kunna räkna korrekt trots tomma fält
-    df_cleaned['antal_portioner'] = s.str.extract(r'(\d+)').astype(float)
+    df['antal_portioner'] = s.str.extract(r'(\d+)').astype(float)
 
-    return df_cleaned
-
-
-df = antal_portioner_nummer(df)
-print(df["antal_portioner"])
+    return df
 
 # 5. Standardisera Leveransvecka
 def clean_leveransvecka(df):
-    df_cleaned = df.copy()
+
     
     def format_week(val):
         val = str(val).lower().strip()
@@ -106,118 +102,86 @@ def clean_leveransvecka(df):
             
         return f"vecka {week} - {year}"
 
-    df_cleaned['leveransvecka'] = df_cleaned['leveransvecka'].apply(format_week)
-    return df_cleaned
-
-
-df = clean_leveransvecka(df)
-print(sorted(df["leveransvecka"].dropna().unique()))
-print(df["leveransvecka"])
+    df['leveransvecka'] = df['leveransvecka'].apply(format_week)
+    return df
 
 # 6. ändrar till datetime och skapar leveransvecka från datum
 def clean_leveransdatum(df):
-    df_clean = df.copy()
-    df_clean["leveransdatum"] = pd.to_datetime(df_clean["leveransdatum"], errors='coerce')
+    
+    df["leveransdatum"] = pd.to_datetime(df["leveransdatum"], errors='coerce')
     # ... din veckologik ...
-    return df_clean
-
-print(df["leveransdatum"].head(100))
+    return df
 
 # 7. gör om postnr till ett format: 12345 i postnummer kolumnen samt Nan till okänt
 def clean_postnummer(df):
-    df_clean = df.copy()
     
     #  Rensa och formatera
-    s = df_clean["postnummer"].astype(str).str.replace(r'SE-|S-| |-|\.', '', regex=True)
+    s = df["postnummer"].astype(str).str.replace(r'SE-|S-| |-|\.', '', regex=True)
     s = s.str.slice(0, 5)
     
     # Ersätt alla typer av tomrum/nan med en riktig sträng
     
-    df_clean["postnummer"] = s.replace('nan', 'okänt').fillna('okänt')
+    df["postnummer"] = s.replace('nan', 'okänt').fillna('okänt')
     
-    return df_clean
-
-
-df = clean_postnummer(df)
-print(df["postnummer"].head(1000))
+    return df
 
 ## 8. tar bort kr, SEK, :- och gör om till decimaler i veckapris samt byter namn till "veckopris""
 def clean_veckopris(df):
-    df_clean = df.copy()
-    df_clean = df_clean.rename(columns={'veckapris': 'veckopris'})
+    
+    df = df.rename(columns={'veckapris': 'veckopris'})
     
     #  behåller siffror och decimaltecken
-    s = df_clean["veckopris"].astype(str).str.replace(r'[^\d,.]', '', regex=True)
+    s = df["veckopris"].astype(str).str.replace(r'[^\d,.]', '', regex=True)
     s = s.str.replace(',', '.')
     
     #  Konvertera till siffror. 
     # Vi tar bort .fillna(0.0) härifrån
-    df_clean["veckopris"] = pd.to_numeric(s, errors='coerce')
+    df["veckopris"] = pd.to_numeric(s, errors='coerce')
     
-    return df_clean
-df = clean_veckopris(df)
-
-print(df["veckopris"].head())
+    return df
 
 # 9. gör om leveransstatus till boolean
 def clean_leveransstatus_bool(df):
-    df_clean = df.copy()
     
     #  Standardisera texten
-    s = df_clean["leveransstatus"].astype(str).str.lower().str.strip()
+    s = df["leveransstatus"].astype(str).str.lower().str.strip()
     
     #  Definiera vad som är en lyckad leverans
     delivered_keywords = ['levererad', 'delivered', 'levered', 'ok', 'ja']
     
     #  Skapa en boolean-kolumn (True om levererad, annars False)
-    df_clean["leveransstatus"] = s.isin(delivered_keywords)
+    df["leveransstatus"] = s.isin(delivered_keywords)
     
-    return df_clean
-
-
-df = clean_leveransstatus_bool(df)
-print(df["leveransstatus"].head(20))
+    return df
 
 # 10. byter dtype till daytimme för pren_startdatum
 def clean_pren_startdatum(df):
-    df_clean = df.copy()
-    df_clean["pren_startdatum"] = pd.to_datetime(df_clean["pren_startdatum"], errors='coerce')
-    return df_clean
-
-
-df = clean_pren_startdatum(df)
-print(df["pren_startdatum"].head(20))
+    
+    df["pren_startdatum"] = pd.to_datetime(df["pren_startdatum"], errors='coerce')
+    return df
 
 # 11. byter dtype i paus_från och paus_till till datetime
 def clean_paus_fran_till(df):
-    df_clean = df.copy()
+
+    # Konvertera till datetime med errors='coerce'
+    df["paus_från"] = pd.to_datetime(df["paus_från"], errors='coerce')
+    df["paus_till"] = pd.to_datetime(df["paus_till"], errors='coerce')
     
-    # 1. Konvertera till datetime med errors='coerce'
-    df_clean["paus_från"] = pd.to_datetime(df_clean["paus_från"], errors='coerce')
-    df_clean["paus_till"] = pd.to_datetime(df_clean["paus_till"], errors='coerce')
-    
-    return df_clean
-df = clean_paus_fran_till(df)
-print(df["paus_från"].head(20))
-print(df["paus_till"].head(20))
+    return df
 
 # 12. byter dtype i avslutad_datum till datetime
 def clean_pren_avslutsdatum(df):
-    df_clean = df.copy()
     
-    # 1. Konvertera till datetime med errors='coerce'
-    df_clean["pren_avslutsdatum"] = pd.to_datetime(df_clean["pren_avslutsdatum"], errors='coerce')
+    # Konvertera till datetime med errors='coerce'
+    df["pren_avslutsdatum"] = pd.to_datetime(df["pren_avslutsdatum"], errors='coerce')
     
-    return df_clean
-df = clean_pren_avslutsdatum(df)
-print(df["pren_avslutsdatum"].head(20))
+    return df
 
 # 12. mapping för ordbetydelse i kostpreferens, och gjort nan till okänt
 def clean_kostpreferens(df):
-    df_clean = df.copy()
-    
+
     #  Standardisera texten till små bokstäver först
-    s = df_clean["kostpreferens"].fillna("okänt").astype(str).str.lower().str.strip()
+    s = df["kostpreferens"].fillna("okänt").astype(str).str.lower().str.strip()
     
     #  Mapping 
     mapping = {
@@ -242,153 +206,111 @@ def clean_kostpreferens(df):
     } 
     
     
-    df_clean["kostpreferens"] = s.replace(mapping)
+    df["kostpreferens"] = s.replace(mapping)
     
-    return df_clean
-
-
-df = clean_kostpreferens(df)
-print(df["kostpreferens"].unique())
-
+    return df
 
 # 13. fyller tomma värden i omdöme_text med "ingen kommentar"
 def clean_omdome_text(df):
-    df_clean = df.copy()
     
     #  Skapar engagemangs-feature (1=skrivit, 0=inte skrivit)
     # Vi använder namnet 'omdome_fylld' 
-    df_clean['omdome_fylld'] = df_clean['omdöme_text'].notnull().astype(int)
+    df['omdome_fylld'] = df['omdöme_text'].notnull().astype(int)
     
     #  Städar original-texten
-    df_clean["omdöme_text"] = df_clean["omdöme_text"].fillna("ingen kommentar").astype(str)
+    df["omdöme_text"] = df["omdöme_text"].fillna("ingen kommentar").astype(str)
     
     #  Räknar ut längden på omdömet
-    df_clean['omdome_langd'] = df_clean['omdöme_text'].apply(lambda x: len(x) if x != "ingen kommentar" else 0)
+    df['omdome_langd'] = df['omdöme_text'].apply(lambda x: len(x) if x != "ingen kommentar" else 0)
     
-    return df_clean
-
-
-df = clean_omdome_text(df)
-
-
-print(df[["omdöme_text"]].head(10))
+    return df
 
 # 14. gör om omdömesdatum till datetime64
 def clean_omdömesdatum(df):
     
-    df_clean = df.copy()
-    
     # Konverterar till datetime64 som tillåter beräkningar
-    df_clean['omdömesdatum'] = pd.to_datetime(df['omdömesdatum'], errors='coerce')
+    df['omdömesdatum'] = pd.to_datetime(df['omdömesdatum'], errors='coerce')
     
-    return df_clean
-df = clean_omdömesdatum(df)
-print(df["omdömesdatum"].head(20))
+    return df
 
 # 15. gör så att nan blir till numeric i omdömesbetyg
 def clean_omdömesbetyg(df):
-    df_clean = df.copy()
-    
+
     #  Konvertera till siffror (float) för att kunna räkna
     # Vi använder errors='coerce' för att göra konstig text till NaN
-    df_clean['omdömesbetyg'] = pd.to_numeric(df_clean['omdömesbetyg'], errors='coerce')
+    df['omdömesbetyg'] = pd.to_numeric(df['omdömesbetyg'], errors='coerce')
     
     # Vi hoppar över .fillna(0) för att inte sänka medelvärdet!
     
-    return df_clean
+    return df
+
 
 # featuring engineering: 
 
 # 1. Beräkning av kundlivslängd (Kundålder)
 def add_kunalder_dagar(df):
-    df_feat = df.copy()
     
     # Säkerställ att datumkolumnerna är i datetime-format
-    df_feat['leveransdatum'] = pd.to_datetime(df_feat['leveransdatum'], errors='coerce')
-    df_feat['pren_startdatum'] = pd.to_datetime(df_feat['pren_startdatum'], errors='coerce')
+    df['leveransdatum'] = pd.to_datetime(df['leveransdatum'], errors='coerce')
+    df['pren_startdatum'] = pd.to_datetime(df['pren_startdatum'], errors='coerce')
     
     #  Utför beräkning
     # .dt.days omvandlar tidsskillnaden till ett rent heltal (siffror)
-    df_feat['feat_kundalder_dagar'] = (df_feat['leveransdatum'] - df_feat['pren_startdatum']).dt.days
+    df['feat_kundalder_dagar'] = (df['leveransdatum'] - df['pren_startdatum']).dt.days
     
     #  Fyller tomma värden (NaN) med 0 så att vi kan räkna på kolumnen
-    df_feat['feat_kundalder_dagar'] = df_feat['feat_kundalder_dagar'].fillna(0).astype(int)
+    df['feat_kundalder_dagar'] = df['feat_kundalder_dagar'].fillna(0).astype(int)
     
-    return df_feat
-
-
-df = add_kunalder_dagar(df)
-print(df["feat_kundalder_dagar"].head(20))
+    return df
 
 # 2. hur länge en kund har haft paus
 
 def feat_paus_langd(df):
-    df_feat = df.copy()
-    
+
     # Räknar ut skillnaden mellan 'till' och 'från'
     # .dt.days gör om tidsskillnaden till ett rent heltal (antal dagar)
-    df_feat['feat_paus_antal_dagar'] = (df_feat['paus_till'] - df_feat['paus_från']).dt.days
+    df['feat_paus_antal_dagar'] = (df['paus_till'] - df['paus_från']).dt.days
     
     # Hantera de som inte har pausat (NaN) genom att sätta dem till 0 dagar
-    df_feat['feat_paus_antal_dagar'] = df_feat['feat_paus_antal_dagar'].fillna(0).astype(int)
+    df['feat_paus_antal_dagar'] = df['feat_paus_antal_dagar'].fillna(0).astype(int)
     
     #  Säkerhetskoll: Om 'paus_till' råkar vara före 'paus_från' sätter vi 0
-    df_feat.loc[df_feat['feat_paus_antal_dagar'] < 0, 'feat_paus_antal_dagar'] = 0
+    df.loc[df['feat_paus_antal_dagar'] < 0, 'feat_paus_antal_dagar'] = 0
     
-    return df_feat
-
-df = feat_paus_langd(df)
-print(df["feat_paus_antal_dagar"].head(20))
-
+    return df
 
 # 3. Identifiering av avslutade prenumerationer(dummy-variabel)
 def feat_churn_status_avslutat(df):
-    df_feat = df.copy()
     
     #  Kollar om det finns ett värde (notnull)
     #  .astype(int) gör om True till 1 och False till 0
-    df_feat['har_avslutat'] = df_feat['pren_avslutsdatum'].notnull().astype(int)
+    df['har_avslutat'] = df['pren_avslutsdatum'].notnull().astype(int)
     
-    return df_feat
-
-
-df = feat_churn_status_avslutat(df)
-
-
-print(df['har_avslutat'].value_counts())
+    return df
 
 # 4. pris per portion
 def feat_pris_per_portion(df):
-    df_feat = df.copy()
     
     #  Räknar ut pris per portion
     # Vi använder .replace(0, np.nan) på nämnaren för att undvika "division med noll"-fel
-    df_feat['pris_per_portion'] = df_feat['veckopris'] / df_feat['antal_portioner'].replace(0, np.nan)
+    df['pris_per_portion'] = df['veckopris'] / df['antal_portioner'].replace(0, np.nan)
     
     #  Avrundar till två decimaler för att det ska se snyggt ut
-    df_feat['pris_per_portion'] = df_feat['pris_per_portion'].round(2)
+    df['pris_per_portion'] = df['pris_per_portion'].round(2)
     
-    return df_feat
-
-#
-df = clean_veckopris(df)
-df = antal_portioner_nummer(df)
-df = feat_pris_per_portion(df)
-
-#
-print(df[['kassatyp', 'veckopris', 'antal_portioner', 'pris_per_portion']].head(10))
+    return df
 
 # 5. delara upp i region för att se vart i sverige kunder handlar samt vilken stad
 
 def add_region_feature(df):
-    df_feat = df.copy()
+    
     # Denna rad skapar kolumnen 'region' som nästa funktion behöver
-    df_feat["region"] = df_feat["postnummer"].astype(str).str[:2]
-    df_feat["region"] = df_feat["region"].replace('ok', 'okänt')
-    return df_feat
+    df["region"] = df["postnummer"].astype(str).str[:2]
+    df["region"] = df["region"].replace('ok', 'okänt')
+    return df
 
 def add_stadnamn_feature(df):
-    df_feat = df.copy()
+    
     stad_map = {
         '10': 'Storstockholm', '11': 'Storstockholm', '12': 'Storstockholm', 
         '13': 'Storstockholm', '14': 'Storstockholm', '15': 'Storstockholm', 
@@ -397,35 +319,15 @@ def add_stadnamn_feature(df):
         '40': 'Göteborg', '41': 'Göteborg', '42': 'Göteborg', '43': 'Göteborg', '44': 'Göteborg'
     }
     # Här använder vi kolumnen 'region' som skapades ovan
-    df_feat['stad_namn'] = df_feat['region'].map(stad_map)
-    df_feat['stad_namn'] = df_feat['stad_namn'].fillna('Övriga Sverige')
-    return df_feat
-
-
-
-df = clean_postnummer(df)      # 1. Städa (t.ex. "S-112 34" -> "11234")
-df = add_region_feature(df)    # 2. Extrahera (t.ex. "11234" -> "11")
-df = add_stadnamn_feature(df)  # 3. Mappa (t.ex. "11" -> "Storstockholm")
-
-
-print(df[['postnummer', 'region', 'stad_namn']].head(20))
+    df['stad_namn'] = df['region'].map(stad_map)
+    df['stad_namn'] = df['stad_namn'].fillna('Övriga Sverige')
+    return df
 
 # 6. #Sentimentanalys av omdöme_text
 
-
 def add_kblab_sentiment(df):
-    df_feat = df.copy()
     
     
-    device = 0 if torch.cuda.is_available() else -1
-    
-    
-    print(f"Laddar KBLab-modellen på {'GPU' if device == 0 else 'CPU'}...")
-    classifier = pipeline(
-        "sentiment-analysis",
-        model="KBLab/robust-swedish-sentiment-multiclass",
-        device=device
-    )
 
     def get_sentiment(text):
         # Snabb-check: hoppa över tomma/korta texter
@@ -440,67 +342,43 @@ def add_kblab_sentiment(df):
             return "NEUTRAL", 0.5
 
     #  Kör analysen
-    print("Analyserar sentiment på omdömen...")
+    
     # Vi sparar resultaten i en temporär kolumn
-    sentiment_results = df_feat['omdöme_text'].apply(get_sentiment)
+    sentiment_results = df['omdöme_text'].apply(get_sentiment)
     
     # 4. Dela upp resultaten i Label och Score
-    df_feat['sentiment_label'] = sentiment_results.apply(lambda x: x[0])
-    df_feat['sentiment_score'] = sentiment_results.apply(lambda x: x[1])
+    df['sentiment_label'] = sentiment_results.apply(lambda x: x[0])
+    df['sentiment_score'] = sentiment_results.apply(lambda x: x[1])
     
     # 5. Mapping till siffror (för att kunna räkna medelvärde)
     mapping = {'POSITIVE': 1, 'NEUTRAL': 0, 'NEGATIVE': -1}
-    df_feat['feat_sentiment_index'] = df_feat['sentiment_label'].map(mapping)
+    df['feat_sentiment_index'] = df['sentiment_label'].map(mapping)
     
-    return df_feat
-df_test = add_kblab_sentiment(df.head(5))
-
-
-print(df_test[['omdöme_text', 'sentiment_label', 'feat_sentiment_index']])
+    return df
 
 # skapar add_sentiment_behavior_features för att se mismatch mellan betyg och text
 def add_sentiment_features(df):
-    df_feat = df.copy()
-    
-
-
     
     # Hittar kunder där texten och betyget inte stämmer överens.
     # Ex: Skriver "Jättegott" (1) men ger betyg 1.
-    df_feat['feat_sentiment_mismatch'] = 0
+    df['feat_sentiment_mismatch'] = 0
     
     # Logik: Negativ text (-1) men betyg 4-5 ELLER Positiv text (1) men betyg 1-2
-    mismatch_mask = ((df_feat['feat_sentiment_index'] == -1) & (df_feat['omdömesbetyg'] >= 4)) | \
-                    ((df_feat['feat_sentiment_index'] == 1) & (df_feat['omdömesbetyg'] <= 2))
+    mismatch_mask = ((df['feat_sentiment_index'] == -1) & (df['omdömesbetyg'] >= 4)) | \
+                    ((df['feat_sentiment_index'] == 1) & (df['omdömesbetyg'] <= 2))
     
-    df_feat.loc[mismatch_mask, 'feat_sentiment_mismatch'] = 1
+    df.loc[mismatch_mask, 'feat_sentiment_mismatch'] = 1
 
     
     # Hittar kunder som är väldigt tydliga i sin feedback (Score > 0.95)
-    df_feat['feat_extreme_sentiment'] = 0
-    df_feat.loc[df_feat['sentiment_score'] > 0.95, 'feat_extreme_sentiment'] = 1
+    df['feat_extreme_sentiment'] = 0
+    df.loc[df['sentiment_score'] > 0.95, 'feat_extreme_sentiment'] = 1
 
     
     # Skapar en ren flagga för negativa omdömen för enkel aggregering
-    df_feat['feat_is_negative'] = (df_feat['feat_sentiment_index'] == -1).astype(int)
+    df['feat_is_negative'] = (df['feat_sentiment_index'] == -1).astype(int)
 
-    return df_feat
-
-df_small = df.head(15).copy()
-
-
-df_small = add_kblab_sentiment(df_small)
-
-
-df_small = add_sentiment_features(df_small)
-
-
-print(df_small[['omdöme_text', 'sentiment_label', 'feat_sentiment_mismatch']].head(15))
-
-print(df.columns)
-print(df.head(20))
-
-print(df.columns)
+    return df
 
 # load till sql
 
@@ -522,30 +400,6 @@ def load_to_sqlite(df, db_name="matkassen_data.db", table_name="processed_data",
     print(f"Verifiering: {count} rader har laddats upp korrekt.")
     
     conn.close()
-
-
-# test sql
-
-df_small = df.head(15).copy()
-df_small = add_kblab_sentiment(df_small)
-df_small = add_sentiment_features(df_small)
-
-#  LOAD (Spara df_small istället för df)
-# Här skickar vi in df_small som nu innehåller 'stad_namn' och 'feat_sentiment_index'
-load_to_sqlite(df_small)
-
-conn = sqlite3.connect("matkassen_data.db")
-df_kontroll = pd.read_sql("SELECT * FROM processed_data LIMIT 5", conn)
-print("\n--- VERIFIERING: DATA LÄST FRÅN SQLITE ---")
-print(df_kontroll[['leverans_id', 'stad_namn', 'feat_sentiment_index']])
-conn.close()
-
-print("\n" + "="*50)
-print("KÖR HELA PIPELINEN PÅ TRÄNINGSDATA")
-print("="*50)
-
-# Vi använder .copy() för att inte ändra original-df och arbetar med df_final
-
 
 #  anropar alla dina funktioner i den fulla pipeline-kedjan:
 
