@@ -24,14 +24,14 @@ def clean_kassatyp_column(df):
     return df
 
 # 2. tar bort stor bokstav 
-def clean_kassatyp(df):
-    
-    df['kassatyp'] = df['kassatyp'].str.lower()
-    return df
+
 
 # 3. mapping för ordbetydelse i kassatyp, har gjort fritolkning på visa ord
 def map_kassatyp(df):
     
+
+    df['kassatyp'] = df['kassatyp'].str.lower()
+
     mapping = {
         'vegetarian': 'vegetariskkasse',
         'veggie': 'vegetariskkasse',
@@ -47,7 +47,17 @@ def map_kassatyp(df):
         'snabb & enkel': 'expresskasse',
         '30-min': 'expresskasse',
         'snabb': 'expresskasse',
-        'quick': 'expresskasse'
+        'quick': 'expresskasse',
+        'familjen': 'familjekasse',
+        'klassiker': 'klassiskkasse',
+        'snabb och enkel': 'expresskasse',
+        'snabb&enkel ': 'expresskasse',
+        'vegan kasse': 'vegankasse',
+        'vegeterian': 'vegetariskkasse',
+        'veggo': 'vegetariskkasse',
+        'vegan': 'vegankasse',
+        'snabb&enkel': 'expresskasse'
+
     }
     
     df['kassatyp'] = df['kassatyp'].replace(mapping)
@@ -383,7 +393,7 @@ def add_sentiment_features(df):
 
 # load till sql
 
-def load_to_sqlite(df, table_name="processed_data", db_name="matkassen_data.db", method='append'):
+def load_to_sqlite(df, table_name="processed_data", db_name="matkassen_data_ny.db", method='append'):
     # 1. Skapa anslutning (filen skapas i din mapp)
     conn = sqlite3.connect(db_name)
     
@@ -437,8 +447,8 @@ def transform_data(df):
 df_clean = transform_data(df)
 df_clean_validation = transform_data(df_validation)
 # Spara den färdiga träningsdatan till databasen
-load_to_sqlite(df_clean, table_name="processed_training_data", method='replace')
-load_to_sqlite(df_clean_validation, table_name="processed_validation_data", method='append')
+load_to_sqlite(df_clean, table_name="processed_data", method='replace')
+load_to_sqlite(df_clean_validation, table_name="processed_data", method='append')
 print("\n" + "="*50)
 print("ETL-PIPELINE SLUTFÖRD. REDO FÖR ANALYS I JUPYTER")
 print("="*50)
