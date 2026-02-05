@@ -332,25 +332,26 @@ def add_kblab_sentiment(df):
     def get_sentiment(text):
         # Snabb-check: hoppa över tomma/korta texter
         if pd.isna(text) or text == "ingen kommentar" or len(str(text)) < 3:
-            return "NEUTRAL", 0.5
+            # RETURNERA None istället för NEUTRAL/0.5
+            return None 
         
         try:
             result = classifier(str(text))
-            # Modellen returnerar en lista, t.ex. [{'label': 'POSITIVE', 'score': 0.99}]
-            return result[0]['label'], result[0]['score']
-        except:
-            return "NEUTRAL", 0.5
+            # Returnera en tuple (etikett, score)
+            return (result['label'], result['score'])
+        except Exception as e:
+            # Om modellen kraschar, returnera också None
+            return None
+            
 
-    #  Kör analysen
-    
-    # Vi sparar resultaten i en temporär kolumn
+    # 1. Kör analysen. sentiment_results blir en Series av tuplar eller None
     sentiment_results = df['omdöme_text'].apply(get_sentiment)
     
-    # 4. Dela upp resultaten i Label och Score
-    df['sentiment_label'] = sentiment_results.apply(lambda x: x[0])
-    df['sentiment_score'] = sentiment_results.apply(lambda x: x[1])
+    # 2. Dela upp resultaten i Label och Score med .str.get() för säker hantering av None/NaN
+    df['sentiment_label'] = sentiment_results.str.get(0)
+    df['sentiment_score'] = sentiment_results.str.get(1)
     
-    # 5. Mapping till siffror (för att kunna räkna medelvärde)
+    # 3. Mapping till siffror (NaN kommer att bevaras automatiskt här)
     mapping = {'POSITIVE': 1, 'NEUTRAL': 0, 'NEGATIVE': -1}
     df['feat_sentiment_index'] = df['sentiment_label'].map(mapping)
     
@@ -382,7 +383,7 @@ def add_sentiment_features(df):
 
 # load till sql
 
-def load_to_sqlite(df, db_name="matkassen_data.db", table_name="processed_data", method='append'):
+def load_to_sqlite(df, table_name="processed_data", db_name="matkassen_data.db", method='append'):
     # 1. Skapa anslutning (filen skapas i din mapp)
     conn = sqlite3.connect(db_name)
     
@@ -437,7 +438,7 @@ df_clean = transform_data(df)
 df_clean_validation = transform_data(df_validation)
 # Spara den färdiga träningsdatan till databasen
 load_to_sqlite(df_clean, table_name="processed_training_data", method='replace')
-load_to_sqlite(df_clean_validation, table_name="processed_training_data", method='append')
+load_to_sqlite(df_clean_validation, table_name="processed_validation_data", method='append')
 print("\n" + "="*50)
 print("ETL-PIPELINE SLUTFÖRD. REDO FÖR ANALYS I JUPYTER")
 print("="*50)
